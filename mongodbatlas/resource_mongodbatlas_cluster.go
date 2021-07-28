@@ -214,13 +214,14 @@ func resourceMongoDBAtlasCluster() *schema.Resource {
 				Computed: true,
 			},
 			"replication_specs": {
-				Type:     schema.TypeSet,
+				Type:     schema.TypeList,
 				Optional: true,
 				Computed: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"id": {
 							Type:     schema.TypeString,
+							Optional: true,
 							Computed: true,
 						},
 						"num_shards": {
@@ -235,7 +236,8 @@ func resourceMongoDBAtlasCluster() *schema.Resource {
 								Schema: map[string]*schema.Schema{
 									"region_name": {
 										Type:     schema.TypeString,
-										Required: true,
+										Optional: true,
+										Computed: true,
 									},
 									"electable_nodes": {
 										Type:     schema.TypeInt,
@@ -266,14 +268,6 @@ func resourceMongoDBAtlasCluster() *schema.Resource {
 							Default:  "ZoneName managed by Terraform",
 						},
 					},
-				},
-				Set: func(v interface{}) int {
-					var buf bytes.Buffer
-					m := v.(map[string]interface{})
-					buf.WriteString(fmt.Sprintf("%d", m["num_shards"].(int)))
-					buf.WriteString(m["zone_name"].(string))
-					buf.WriteString(fmt.Sprintf("%+v", m["regions_config"].(*schema.Set)))
-					return HashCodeString(buf.String())
 				},
 			},
 			"mongo_db_version": {
@@ -1167,8 +1161,18 @@ func expandReplicationSpecs(d *schema.ResourceData) ([]matlas.ReplicationSpec, e
 	vPRName, okPRName := d.GetOk("provider_region_name")
 
 	if okRSpecs {
-		for _, s := range vRSpecs.(*schema.Set).List() {
+		for _, s := range vRSpecs.([]interface{}) {
 			spec := s.(map[string]interface{})
+			id := cast.ToString(spec["id"])
+			// Check if has changes
+			if d.HasChange("replication_specs") && cast.ToString(d.Get("cluster_type")) == "GEOSHARDED" {
+				// Get original and new object
+				original, _ := d.GetChange("replication_specs")
+				isSame, oldID := compareReplicationSpecs(original, spec)
+				if isSame {
+					id = oldID
+				}
+			}
 
 			replaceRegion := ""
 			originalRegion := ""
@@ -1187,7 +1191,7 @@ func expandReplicationSpecs(d *schema.ResourceData) ([]matlas.ReplicationSpec, e
 			}
 
 			rSpec := matlas.ReplicationSpec{
-				ID:            cast.ToString(spec["id"]),
+				ID:            id,
 				NumShards:     pointy.Int64(cast.ToInt64(spec["num_shards"])),
 				ZoneName:      cast.ToString(spec["zone_name"]),
 				RegionsConfig: regionsConfig,
@@ -1483,4 +1487,14 @@ func clusterConnectionStringsSchema() *schema.Schema {
 			},
 		},
 	}
+}
+
+func compareReplicationSpecs(oldObject interface{}, newValues map[string]interface{}) (flag bool, idSpec string) {
+	for _, s := range oldObject.([]interface{}) {
+		spec := s.(map[string]interface{})
+		if cast.ToString(spec["zone_name"]) == cast.ToString(newValues["zone_name"]) {
+			return true, cast.ToString(spec["id"])
+		}
+	}
+	return false, ""
 }
