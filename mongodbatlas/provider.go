@@ -54,6 +54,12 @@ func Provider() *schema.Provider {
 				DefaultFunc: schema.EnvDefaultFunc("MONGODB_REALM_BASE_URL", ""),
 				Description: "MongoDB Realm Base URL",
 			},
+			"mongodbgov": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				Description: "Use MongoDB AtlasGov URL",
+			},
 		},
 
 		DataSourcesMap: map[string]*schema.Resource{
@@ -143,11 +149,17 @@ func Provider() *schema.Provider {
 }
 
 func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+	const baseUrlMongoGov = "https://cloud.mongodbgov.com"
+
 	config := Config{
 		PublicKey:    d.Get("public_key").(string),
 		PrivateKey:   d.Get("private_key").(string),
 		BaseURL:      d.Get("base_url").(string),
 		RealmBaseURL: d.Get("realm_base_url").(string),
+	}
+
+	if d.Get("mongodbgov").(bool) {
+		config.BaseURL = baseUrlMongoGov
 	}
 
 	return config.NewClient(ctx)
